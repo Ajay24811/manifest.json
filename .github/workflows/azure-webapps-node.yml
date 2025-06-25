@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4CAF50">
+    <meta name="description" content="Download videos and save to your gallery">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Video Downloader">
+    <title>Video Downloader</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="url"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            display: block;
+            margin: 10px auto;
+            width: 100%;
+            max-width: 300px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+            display: block;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+            display: block;
+        }
+        #permissionBtn {
+            background-color: #2196F3;
+        }
+        #permissionBtn:hover {
+            background-color: #0b7dda;
+        }
+        .instructions {
+            background-color: #fffde7;
+            padding: 15px;
+            border-left: 4px solid #ffd600;
+            margin-bottom: 20px;
+        }
+        #videoPreview {
+            max-width: 100%;
+            margin-top: 20px;
+            display: none;
+        }
+        #installContainer {
+            display: none;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        #installBtn {
+            background-color: #FF9800;
+        }
+        #installBtn:hover {
+            background-color: #F57C00;
+        }
+        .app-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .app-icon {
+            width: 48px;
+            height: 48px;
+            margin-right: 15px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <img src="icons/icon-192x192.png" alt="App Icon" class="app-icon">
+            <h1>Video Downloader</h1>
+        </div>
+        
+        <div id="installContainer">
+            <button id="installBtn">Install App</button>
+        </div>
+        
+        <div class="instructions">
+            <h3>How to use:</h3>
+            <ol>
+                <li>Grant storage permission (required for gallery access)</li>
+                <li>Paste video URL in the input field</li>
+                <li>Preview the video (optional)</li>
+                <li>Click "Download Video"</li>
+            </ol>
+            <p><strong>Tip:</strong> Install this app for better performance and offline use.</p>
+        </div>
+        
+        <div class="input-group">
+            <button id="permissionBtn" onclick="requestStoragePermission()">Grant Storage Permission</button>
+        </div>
+        
+        <div class="input-group">
+            <label for="videoUrl">Video URL:</label>
+            <input type="url" id="videoUrl" placeholder="https://example.com/video.mp4" required>
+        </div>
+        
+        <button onclick="previewVideo()">Preview Video</button>
+        <video id="videoPreview" controls></video>
+        
+        <button onclick="downloadVideo()">Download Video</button>
+        
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful');
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+
+        // Handle PWA installation
+        let deferredPrompt;
+        const installContainer = document.getElementById('installContainer');
+        const installBtn = document.getElementById('installBtn');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            installContainer.style.display = 'block';
+            
+            installBtn.addEventListener('click', () => {
+                installContainer.style.display = 'none';
+                deferredPrompt.prompt();
+                
+                deferredPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('User accepted install prompt');
+                    } else {
+                        console.log('User dismissed install prompt');
+                    }
+                    deferredPrompt = null;
+                });
+            });
+        });
+
+        window.addEventListener('appinstalled', () => {
+            console.log('PWA was installed');
+            installContainer.style.display = 'none';
+            deferredPrompt = null;
+        });
+
+        // Request storage permission
+        async function requestStoragePermission() {
+            try {
+                if ('storage' in navigator && 'persist' in navigator.storage) {
+                    const persisted = await navigator.storage.persist();
+                    const status = document.getElementById('status');
+                    status.className = persisted ? 'success' : 'error';
+                    status.innerHTML = persisted ? 
+                        'Storage permission granted! You can now save videos to your gallery.' : 
+                        'Storage permission denied. Videos may not save properly.';
+                } else if (window.AndroidInterface && window.AndroidInterface.requestStoragePermission) {
+                    window.AndroidInterface.requestStoragePermission();
+                    document.getElementById('status').className = 'success';
+                    document.getElementById('status').innerHTML = 'Storage permission requested. Please allow access.';
+                } else {
+                    document.getElementById('status').className = 'success';
+                    document.getElementById('status').innerHTML = 'Using browser default download location.';
+                }
+            } catch (error) {
+                document.getElementById('status').className = 'error';
+                document.getElementById('status').innerHTML = 'Error: ' + error.message;
+            }
+        }
+
+        // Preview video function
+        async function previewVideo() {
+            const videoUrl = document.getElementById('videoUrl').value.trim();
+            const status = document.getElementById('status');
+            const videoPreview = document.getElementById('videoPreview');
+            
+            if (!videoUrl) {
+                status.className = 'error';
+                status.innerHTML = 'Please enter a valid video URL';
+                return;
+            }
+
+            try {
+                status.className = '';
+                status.innerHTML = 'Loading preview...';
+                status.style.display = 'block';
+
+                videoPreview.src = videoUrl;
+                videoPreview.style.display = 'block';
+                
+                videoPreview.oncanplay = function() {
+                    status.className = 'success';
+                    status.innerHTML = 'Preview ready!';
+                };
+                
+                videoPreview.onerror = function() {
+                    status.className = 'error';
+                    status.innerHTML = 'Could not load video for preview.';
+                    videoPreview.style.display = 'none';
+                };
+            } catch (error) {
+                status.className = 'error';
+                status.innerHTML = 'Preview failed: ' + error.message;
+                videoPreview.style.display = 'none';
+            }
+        }
+
+        // Download video function
+        async function downloadVideo() {
+            const videoUrl = document.getElementById('videoUrl').value.trim();
+            const status = document.getElementById('status');
+            
+            if (!videoUrl) {
+                status.className = 'error';
+                status.innerHTML = 'Please enter a valid video URL';
+                return;
+            }
+
+            try {
+                status.className = '';
+                status.innerHTML = 'Downloading...';
+                status.style.display = 'block';
+
+                if (window.AndroidInterface && window.AndroidInterface.downloadVideo) {
+                    window.AndroidInterface.downloadVideo(videoUrl);
+                    status.className = 'success';
+                    status.innerHTML = 'Download started! Check your gallery.';
+                } else {
+                    const response = await fetch(videoUrl, {
+                        headers: new Headers({ 'Origin': location.origin }),
+                        mode: 'cors'
+                    });
+                    
+                    if (!response.ok) throw new Error('Network response was not ok');
+                    
+                    const contentDisposition = response.headers.get('content-disposition');
+                    let filename = 'video_' + Date.now() + '.mp4';
+                    
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+                        if (filenameMatch && filenameMatch[1]) {
+                            filename = filenameMatch[1];
+                        }
+                    }
+                    
+                    const blob = await response.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        window.URL.revokeObjectURL(blobUrl);
+                    }, 100);
+                    
+                    status.className = 'success';
+                    status.innerHTML = 'Download complete! The video should be in your downloads folder.';
+                }
+            } catch (error) {
+                status.className = 'error';
+                status.innerHTML = 'Download failed: ' + error.message;
+            }
+        }
+
+        // Check if launched as PWA
+        function isRunningStandalone() {
+            return window.matchMedia('(display-mode: standalone)').matches || 
+                   window.navigator.standalone ||
+                   document.referrer.includes('android-app://');
+        }
+
+        // Hide install button if already installed
+        if (isRunningStandalone()) {
+            installContainer.style.display = 'none';
+        }
+    </script>
+
+    <!-- Embedded manifest content for demo purposes -->
+    <script type="application/manifest+json" id="embedded-manifest">
+        {
+            "name": "Video Downloader",
+            "short_name": "VideoDL",
+            "description": "Download videos and save to your gallery",
+            "start_url": "/",
+            "display": "standalone",
+            "background_color": "#ffffff",
+            "theme_color": "#4CAF50",
+            "icons": [
+                {
+                    "src": "icons/icon-72x72.png",
+                    "sizes": "72x72",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-96x96.png",
+                    "sizes": "96x96",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-128x128.png",
+                    "sizes": "128x128",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-144x144.png",
+                    "sizes": "144x144",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-152x152.png",
+                    "sizes": "152x152",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-192x192.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-384x384.png",
+                    "sizes": "384x384",
+                    "type": "image/png"
+                },
+                {
+                    "src": "icons/icon-512x512.png",
+                    "sizes": "512x512",
+                    "type": "image/png"
+                }
+            ]
+        }
+    </script>
+
+    <!-- Embedded Service Worker for demo purposes -->
+    <script id="sw-script" type="text/javascript">
+        // Service worker content
+        const CACHE_NAME = 'video-downloader-v3';
+        const urlsToCache = [
+            '/',
+            '/index.html',
+            '/styles.css',
+            '/script.js',
+            '/icons/icon-192x192.png',
+            '/icons/icon-512x512.png'
+        ];
+
+        self.addEventListener('install', event => {
+            event.waitUntil(
+                caches.open(CACHE_NAME)
+                    .then(cache => cache.addAll(urlsToCache))
+            );
+        });
+
+        self.addEventListener('fetch', event => {
+            event.respondWith(
+                caches.match(event.request)
+                    .then(response => response || fetch(event.request))
+            );
+        });
+
+        self.addEventListener('activate', event => {
+            const cacheWhitelist = [CACHE_NAME];
+            event.waitUntil(
+                caches.keys().then(cacheNames => {
+                    return Promise.all(
+                        cacheNames.map(cacheName => {
+                            if (!cacheWhitelist.includes(cacheName)) {
+                                return caches.delete(cacheName);
+                            }
+                        })
+                    );
+                })
+            );
+        });
+    </script>
+</body>
+</html>
